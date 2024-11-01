@@ -1,5 +1,6 @@
 import {App,  Notice, Plugin, PluginSettingTab, Setting, TFile} from 'obsidian';
 import * as fs from "fs";
+import * as path from "path";
 
 
 interface BookXNoteSyncSettings {
@@ -117,7 +118,7 @@ async function syncBookXNote(t: BookXNotePlugin) {
 		new Notice('请设置BookXNote路径');
 		return
 	}
-	const notebookManifest = notebookDir + "\\manifest.json"
+	const notebookManifest = path.join(notebookDir, "manifest.json")
 	// 读取json文件
 	const manifest = fs.readFileSync(notebookManifest, 'utf8')
 	// console.log(manifest);
@@ -162,8 +163,8 @@ function GetBookFromNoteBook(mainifestObj: any){
 async function readNotebook(t: BookXNotePlugin, nb: string, entry: string) {
 	const app = t.app
 	const notebookDirBase = t.settings.BookXNotePath
-	const notebookDir = notebookDirBase + `\\${entry}`
-	const notebookManifest = notebookDir + "\\manifest.json"
+	const notebookDir = path.join(notebookDirBase, entry)
+	const notebookManifest = path.join(notebookDir, "manifest.json")
 	// 读取json文件
 	const manifest = fs.readFileSync(notebookManifest, 'utf8')
 	// console.log(manifest);
@@ -173,7 +174,7 @@ async function readNotebook(t: BookXNotePlugin, nb: string, entry: string) {
 	const book_uuid = manifestObj.res[0]["uuid"]
 	// console.log("书的uuid:" + book_uuid);
 
-	const notebookMarkup = notebookDir + "\\markups.json"
+	const notebookMarkup = path.join(notebookDir, "markups.json")
 	const markup = fs.readFileSync(notebookMarkup, 'utf8')
 	// 读取notebookMarup 文件的修改时间
 	const markupStat = fs.statSync(notebookMarkup)
@@ -191,7 +192,7 @@ async function readNotebook(t: BookXNotePlugin, nb: string, entry: string) {
 	// 创建文件夹
 	await app.vault.adapter.mkdir(localDir)
 	// 合并路径
-	let filePath = `${localDir}/${entry}.md`
+	let filePath = path.join(localDir, `${entry}.md`).replace(/\\/g, '/')
 	let file
 	const existFile = await app.vault.adapter.exists(filePath)
 	// console.log("文件是否存在:" + existFile)
@@ -316,22 +317,22 @@ class BookXNoteSyncSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('BookXNote Path')
-			.setDesc('BookXNote笔记路径')
+			.setDesc('BookXNote笔记路径 (请使用完整路径，例如: /Users/username/Documents/BookXNote/notebooks)')
 			.addText(text => text
 				.setPlaceholder('输入BookXNote笔记路径')
 				.setValue(this.plugin.settings.BookXNotePath)
 				.onChange(async (value) => {
-					this.plugin.settings.BookXNotePath = value;
+					this.plugin.settings.BookXNotePath = value.replace(/\\/g, path.sep);
 					await this.plugin.saveSettings();
 				}));
 		new Setting(containerEl)
 			.setName('Obsidian Path')
-			.setDesc('笔记保存到Obsidian的路径')
+			.setDesc('笔记保存到Obsidian的路径 (使用正斜杠 / 作为分隔符)')
 			.addText(text => text
 				.setPlaceholder('输入笔记保存到Obsidian的相对路径')
 				.setValue(this.plugin.settings.ObsidianPath)
 				.onChange(async (value) => {
-					this.plugin.settings.ObsidianPath = value;
+					this.plugin.settings.ObsidianPath = value.replace(/\\/g, '/');
 					await this.plugin.saveSettings();
 				}))
 
