@@ -22,9 +22,7 @@ export default class BookXNotePlugin extends Plugin {
 	// 右上角菜单
 	async onload() {
 		await this.loadSettings();
-		// This creates an icon in the left ribbon.
 		this.addRibbonIcon('scroll-text', 'BookXNote同步所有笔记', (_: MouseEvent) => {
-			// Called when the user clicks the icon.
 			new Notice('开始同步BookXNote...');
 			syncBookXNote(this)
 		});
@@ -58,11 +56,6 @@ export default class BookXNotePlugin extends Plugin {
 			))
 
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		// const statusBarItemEl = this.addStatusBarItem();
-		// statusBarItemEl.setText('Status Bar Text');
-
-		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
 			id: 'sync',
 			name: '同步所有笔记',
@@ -92,7 +85,7 @@ export default class BookXNotePlugin extends Plugin {
 				}
 			}
 		})
-		// This adds a settings tab so the user can configure various aspects of the plugin
+
 		this.addSettingTab(new BookXNoteSyncSettingTab(this.app, this));
 	}
 
@@ -166,16 +159,6 @@ function joinPath(...paths: string[]): string {
 	return normalizePath(path.join(...paths));
 }
 
-// 添加验证函数
-function validateSettings(settings: BookXNoteSyncSettings): void {
-	if (!settings.BookXNotePath) {
-		throw new Error('BookXNote路径未设置');
-	}
-	if (!fs.existsSync(settings.BookXNotePath)) {
-		throw new Error('BookXNote路径不存在');
-	}
-}
-
 // 同步函数
 async function syncBookXNote(t: BookXNotePlugin) {
 	try {
@@ -215,18 +198,6 @@ async function syncBookXNote(t: BookXNotePlugin) {
 
 // 读取一本书的notebook内容
 async function readNotebook(t: BookXNotePlugin, nb: string, entry: string) {
-	const cache = new Map<string, any>();
-
-	async function readJsonFile(filePath: string) {
-		if (cache.has(filePath)) {
-			return cache.get(filePath);
-		}
-		const content = await fs.promises.readFile(filePath, 'utf8');
-		const json = JSON.parse(content);
-		cache.set(filePath, json);
-		return json;
-	}
-
 	const app = t.app
 	const notebookDirBase = t.settings.BookXNotePath
 	const notebookDir = path.join(notebookDirBase, entry)
@@ -353,12 +324,6 @@ function parseMarkupObj(markupObj: MarkupObject, headerNumber: number, nb: strin
 		}
 	}
 	return render
-}
-
-// 修复 isFileHasProperty 和 GetFilePropertyByKey 中的 this 引用问题
-function isFileHasProperty(file: TFile, key: string, app: App) {
-	const cache = app.metadataCache.getFileCache(file);
-	return cache?.frontmatter && cache.frontmatter[key];
 }
 
 function GetFilePropertyByKey(file: TFile, key: string): string | null {
