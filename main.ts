@@ -22,14 +22,18 @@ export default class BookXNotePlugin extends Plugin {
 	// 右上角菜单
 	async onload() {
 		await this.loadSettings();
+		try {
+			validateSettings(this.settings);
+		} catch (error) {
+			new Notice(`设置验证失败: ${error.message}`);
+			return;
+		}
 		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('scroll-text', 'BookXNote同步所有笔记', (_: MouseEvent) => {
+		this.addRibbonIcon('scroll-text', 'BookXNote同步所有笔记', (_: MouseEvent) => {
 			// Called when the user clicks the icon.
 			new Notice('开始同步BookXNote...');
 			syncBookXNote(this)
 		});
-		// Perform additional things with the ribbon
-		// ribbonIconEl.addClass('my-plugin-ribbon-class');
 
 		// 增加文件设置
 		this.registerEvent(
@@ -111,56 +115,124 @@ export default class BookXNotePlugin extends Plugin {
 	}
 }
 
-// 同步函数
-async function syncBookXNote(t: BookXNotePlugin) {
-	const notebookDir = t.settings.BookXNotePath
-	if (!notebookDir) {
-		new Notice('请设置BookXNote路径');
-		return
-	}
-	const notebookManifest = path.join(notebookDir, "manifest.json")
-	// 读取json文件
-	const manifest = fs.readFileSync(notebookManifest, 'utf8')
-	// console.log(manifest);
-	// 解析 json文件
-	const manifestObj = JSON.parse(manifest)
-	// console.log(manifestObj);
-	if (!manifestObj.notebooks) {
-		new Notice('没有notebooks');
-		return
-	}
-	let bookList = GetBookFromNoteBook(manifestObj)
-	for (let i = 0; i < bookList.length; i++) {
-		let notebook = bookList[i];
-		try {
-			await readNotebook(t, notebook.id, notebook.entry)
-			// console.log(notebook.id + ":" + notebook.entry);
-		} catch (e) {
-			new Notice(`读取${notebook.entry}失败:` + e);
-			// console.log(e);
-		}
-	}
+// 添加错误处理工具函数
+function handleError(error: Error, context: string) {
+	console.error(`${context}:`, error);
+	new Notice(`错误: ${context} - ${error.message}`);
 }
 
-function GetBookFromNoteBook(mainifestObj: any){
-	let result: any[] = []
+// 修改类型定义，使其更准确
+interface BookXNoteManifest {
+	notebooks?: Array<NotebookItem>;
+}
+
+interface NotebookItem {
+	type: number;
+	id: string;
+	entry: string;
+	notebooks?: Array<NotebookItem>; // 添加递归定义
+}
+
+// 修改 GetBookFromNoteBook 函数的实现
+function GetBookFromNoteBook(mainifestObj: BookXNoteManifest): NotebookItem[] {
+	let result: NotebookItem[] = []
 	if(!mainifestObj.notebooks){
 		return []
 	}
-	for (let i = 0; i < mainifestObj.notebooks?.length; i++) {
-		let notebook = mainifestObj.notebooks[i];
-		if (notebook["type"] == 0){
-			result.push(mainifestObj.notebooks[i])
-		}else{
-			const childBooks = GetBookFromNoteBook(notebook)
+	for (const notebook of mainifestObj.notebooks) {
+		if (notebook.type === 0){
+			result.push(notebook)
+		} else {
+			const childBooks = GetBookFromNoteBook({ notebooks: notebook.notebooks })
 			result = result.concat(childBooks)
 		}
 	}
 	return result
 }
 
+// 修改 MarkupObject 接口定义
+interface MarkupObject {
+	title?: string;
+	originaltext?: string;
+	content?: string;
+	page?: number;
+	uuid?: string;
+	textblocks?: Array<{
+		first: number[];  // 修改类型定义
+	}>;
+	markups?: MarkupObject[];
+}
+
+// 添加路径处理工具函数
+function normalizePath(filepath: string): string {
+	return filepath.replace(/\\/g, '/');
+}
+
+function joinPath(...paths: string[]): string {
+	return normalizePath(path.join(...paths));
+}
+
+// 添加验证函数
+function validateSettings(settings: BookXNoteSyncSettings): void {
+	if (!settings.BookXNotePath) {
+		throw new Error('BookXNote路径未设置');
+	}
+	if (!fs.existsSync(settings.BookXNotePath)) {
+		throw new Error('BookXNote路径不存在');
+	}
+}
+
+// 同步函数
+async function syncBookXNote(t: BookXNotePlugin) {
+	try {
+		const notebookDir = t.settings.BookXNotePath
+		if (!notebookDir) {
+			throw new Error('请设置BookXNote路径');
+		}
+
+		const notebookManifest = path.join(notebookDir, "manifest.json")
+		if (!fs.existsSync(notebookManifest)) {
+			throw new Error('manifest.json文件不存在');
+		}
+
+		// 读取json文件
+		const manifest = fs.readFileSync(notebookManifest, 'utf8')
+		// console.log(manifest);
+		// 解析 json文件
+		const manifestObj = JSON.parse(manifest)
+		// console.log(manifestObj);
+		if (!manifestObj.notebooks) {
+			new Notice('没有notebooks');
+			return
+		}
+		const bookList = GetBookFromNoteBook(manifestObj);
+		const syncPromises = bookList.map(notebook =>
+			readNotebook(t, notebook.id, notebook.entry)
+				.catch(e => {
+					handleError(e, `读取${notebook.entry}失败`);
+				})
+		);
+
+		await Promise.all(syncPromises);
+	} catch (error) {
+		handleError(error as Error, '同步笔记失败');
+	}
+}
+
 // 读取一本书的notebook内容
 async function readNotebook(t: BookXNotePlugin, nb: string, entry: string) {
+	const cache = new Map<string, any>();
+
+	async function readJsonFile(filePath: string) {
+		if (cache.has(filePath)) {
+			return cache.get(filePath);
+		}
+		const content = await fs.promises.readFile(filePath, 'utf8');
+		const json = JSON.parse(content);
+		cache.set(filePath, json);
+		return json;
+	}
+
 	const app = t.app
 	const notebookDirBase = t.settings.BookXNotePath
 	const notebookDir = path.join(notebookDirBase, entry)
@@ -186,13 +258,13 @@ async function readNotebook(t: BookXNotePlugin, nb: string, entry: string) {
 	// 新建文件 并且把内容写入到文件中 如果文件存在，就更改文件
 	let localDir = t.settings.ObsidianPath
 	if (!localDir) {
-		// 本地根目录
+		// 本根目录
 		localDir = app.vault.getRoot().path
 	}
 	// 创建文件夹
 	await app.vault.adapter.mkdir(localDir)
 	// 合并路径
-	let filePath = path.join(localDir, `${entry}.md`).replace(/\\/g, '/')
+	let filePath = joinPath(localDir, `${entry}.md`);
 	let file
 	const existFile = await app.vault.adapter.exists(filePath)
 	// console.log("文件是否存在:" + existFile)
@@ -230,7 +302,7 @@ async function readNotebook(t: BookXNotePlugin, nb: string, entry: string) {
 			Object.assign(frontmatter, origin_front_matter)
 			frontmatter.book_x_note_uuid = book_uuid
 			frontmatter.book_x_note_nb = nb
-			frontmatter.book_x_note_sync_time = new Date().toLocaleString()
+			frontmatter.book_x_note_sync_time = formatDate(new Date());
 		})
 	}
 	new Notice(`${entry}同步成功`)
@@ -239,68 +311,81 @@ async function readNotebook(t: BookXNotePlugin, nb: string, entry: string) {
 	// }
 }
 
-// 解析markup obj 内容
-function parseMarkupObj(markupObj: any, headerNumber: number, nb: string, book_uuid: string) {
+// 修改 parseMarkupObj 函数中的字符串处理
+function parseMarkupObj(markupObj: MarkupObject, headerNumber: number, nb: string, book_uuid: string) {
 	let render = ""
 	const title = markupObj.title
 	if (title && headerNumber > 1) {
 		render += `${"#".repeat(headerNumber)} ${title}\n\n`
 	}
+
 	let originaltext = markupObj.originaltext
 	if (originaltext) {
-		originaltext = originaltext.replaceAll("\n", "\n>")
+		// 使用 split 和 join 替代 replaceAll
+		originaltext = originaltext.split("\n").join("\n>")
 		render += `> ${originaltext}`
-		// 连接
-		if (markupObj.textblocks && markupObj.textblocks.length > 0) {
-			let f = markupObj.textblocks[0];
-			f = f['first']
-			let x = f[0]
-			let y = f[1]
-			const book_link = `bookxnotepro://opennote/?nb=${nb}&book=${book_uuid}&page=${markupObj.page}&x=${x}&y=${y}&id=1&uuid=${markupObj.uuid}`
-			// console.log("book_link:", book_link)
-			const link = `[p${markupObj.page}](${book_link})`
-			// 如果render 以 "]"结尾 需要再加两个空格
-			if (render.endsWith("]")) {
-				render += "  "
+
+		// 添加更严格的类型检查
+		const textblocks = markupObj.textblocks
+		if (textblocks && textblocks.length > 0) {
+			const firstBlock = textblocks[0];
+			if (firstBlock && firstBlock.first) {
+				const coordinates = firstBlock.first;
+
+				if (coordinates && coordinates.length >= 2) {
+					const [x, y] = coordinates;
+					const book_link = `bookxnotepro://opennote/?nb=${nb}&book=${book_uuid}&page=${markupObj.page}&x=${x}&y=${y}&id=1&uuid=${markupObj.uuid}`
+					const link = `[p${markupObj.page}](${book_link})`
+
+					if (render.endsWith("]")) {
+						render += "  "
+					}
+					render += link
+				}
 			}
-			render += `${link}`
 		}
 		render += "\n\n"
 	}
+
 	const content = markupObj.content
 	if (content) {
 		render += `${content}\n\n`
 	}
+
 	const children = markupObj.markups
 	if (children) {
-		for (let i = 0; i < children.length; i++) {
-			const child = children[i];
+		for (const child of children) {
 			render += parseMarkupObj(child, headerNumber + 1, nb, book_uuid)
 		}
 	}
 	return render
 }
 
-
-// 检查文件中是否有bookxnote属性
-function isFileHasProperty(file: TFile, key: string) {
-	// 获取文件的属性
-	const cache = this.app.metadataCache.getFileCache(file);
-	// 查看fontmatter 中有没有 bookxnote属性
-	return cache?.frontmatter && cache.frontmatter[key]
+// 修复 isFileHasProperty 和 GetFilePropertyByKey 中的 this 引用问题
+function isFileHasProperty(file: TFile, key: string, app: App) {
+	const cache = app.metadataCache.getFileCache(file);
+	return cache?.frontmatter && cache.frontmatter[key];
 }
 
-// 获取bookxnote的值
 function GetFilePropertyByKey(file: TFile, key: string): string | null {
-	if (isFileHasProperty(file, key)) {
-		const cache = this.app.metadataCache.getFileCache(file)
-		const frontMatter = cache?.frontmatter;
-		return frontMatter[key]
-	} else {
-		return null
+	const cache = this.app.metadataCache.getFileCache(file);
+	if (cache?.frontmatter && key in cache.frontmatter) {
+		return cache.frontmatter[key];
 	}
+	return null;
 }
 
+// 添加日期处理工具函数
+function formatDate(date: Date): string {
+	return date.toLocaleString('zh-CN', {
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit'
+	});
+}
 
 class BookXNoteSyncSettingTab extends PluginSettingTab {
 	plugin: BookXNotePlugin;
