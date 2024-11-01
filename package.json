@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-bookxnote-sync",
-	"version": "2024.11.01",
+	"version": "2024.11.1",
 	"description": "从BookXNote中同步笔记到Obsidian",
 	"main": "main.js",
 	"scripts": {

@@ -1,7 +1,7 @@
 {
 	"id": "bookxnote-sync",
 	"name": "BookXNote Sync",
-	"version": "2024.11.01",
+	"version": "2024.11.1",
 	"minAppVersion": "0.15.0",
 	"description": "从bookxnote中同步笔记",
 	"author": "CodeListening",

@@ -22,12 +22,6 @@ export default class BookXNotePlugin extends Plugin {
 	// 右上角菜单
 	async onload() {
 		await this.loadSettings();
-		try {
-			validateSettings(this.settings);
-		} catch (error) {
-			new Notice(`设置验证失败: ${error.message}`);
-			return;
-		}
 		// This creates an icon in the left ribbon.
 		this.addRibbonIcon('scroll-text', 'BookXNote同步所有笔记', (_: MouseEvent) => {
 			// Called when the user clicks the icon.
